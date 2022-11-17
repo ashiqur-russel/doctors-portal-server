@@ -29,6 +29,7 @@ async function run() {
     const bookingCollection = client
       .db("doctors-portal")
       .collection("bookings");
+    const usersCollection = client.db("doctors-portal").collection("users");
 
     app.get("/appointmentOptions", async (req, res) => {
       const date = req.query.date;
@@ -87,6 +88,15 @@ async function run() {
         return res.send({ acknowledged: false, message });
       }
       const result = await bookingCollection.insertOne(booking);
+      res.send(result);
+    });
+
+    /* Users API */
+
+    app.post("/users", async (req, res) => {
+      const user = req.body;
+      console.log(user);
+      const result = await usersCollection.insertOne(user);
       res.send(result);
     });
   } finally {
