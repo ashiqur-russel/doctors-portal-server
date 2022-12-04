@@ -12,10 +12,11 @@ app.use(express.json());
 function verifyJWT(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader) {
-    return res.status(401).send("unauthorized access");
+    return res.status(401).send("Unauthorized Access!");
   }
 
   const token = authHeader.split(" ")[1];
+  console.log("inside verify jwt", token);
 
   jwt.verify(token, process.env.ACCESS_TOKEN, function (err, decoded) {
     if (err) {
@@ -36,28 +37,26 @@ const client = new MongoClient(uri, {
 
 async function run() {
   try {
-    const timeSlotConnection = client
+    const appointmentOptionsCollection = client
       .db("doctors-portal")
-      .collection("timeSlots");
+      .collection("appointmentOptions");
 
     const bookingCollection = client
       .db("doctors-portal")
       .collection("bookings");
     const usersCollection = client.db("doctors-portal").collection("users");
+    const doctorsCollection = client.db("doctors-portal").collection("doctors");
 
     //generate token
     app.get("/jwt", async (req, res) => {
       const email = req.query.email;
       const query = { email: email };
       const user = await usersCollection.findOne(query);
-      console.log(user);
-
       if (user) {
         const token = jwt.sign({ email }, process.env.ACCESS_TOKEN, {
-          expiresIn: "1h",
+          expiresIn: "1d",
         });
-
-        return res.send({ accessToken: token });
+        res.send({ accessToken: token });
       }
       res.status(403).send({ accessToken: "No Access Token" });
     });
@@ -66,7 +65,7 @@ async function run() {
       const date = req.query.date;
       console.log(date);
       const query = {};
-      const options = await timeSlotConnection.find(query).toArray();
+      const options = await appointmentOptionsCollection.find(query).toArray();
       const bookingQuery = {
         appointmentDate: date,
       };
@@ -90,6 +89,17 @@ async function run() {
       res.send(options);
     });
 
+    //get Speciality
+
+    app.get("/appointmentSpeciality", async (req, res) => {
+      const query = {};
+      const result = await appointmentOptionsCollection
+        .find(query)
+        .project({ name: 1 })
+        .toArray();
+      res.send(result);
+    });
+
     /***
      * bookings API naming convention
      * app.get('/bookings)
@@ -99,6 +109,7 @@ async function run() {
      ***/
     app.get("/bookings", verifyJWT, async (req, res) => {
       const email = req.query.email;
+      console.log(email);
       const decodedEmail = req.decoded.email;
 
       if (email !== decodedEmail) {
@@ -112,6 +123,8 @@ async function run() {
 
     app.post("/bookings", async (req, res) => {
       const booking = req.body;
+      console.log(booking);
+
       const query = {
         appointmentDate: booking.appointmentDate,
         email: booking.email,
@@ -143,6 +156,12 @@ async function run() {
       res.send(users);
     });
 
+    app.get("/users/admin/:email", async (req, res) => {
+      const email = req.params.email;
+      const query = { email };
+      const user = await usersCollection.findOne(query);
+      res.send({ isAdmin: user?.role === "admin" });
+    });
     app.put("/users/admin/:id", verifyJWT, async (req, res) => {
       const decodedEmail = req.decoded.email;
       const query = { email: decodedEmail };
@@ -164,6 +183,21 @@ async function run() {
         updatedDoc,
         options
       );
+      res.send(result);
+    });
+
+    //add doctor
+    app.post("/doctors", async (req, res) => {
+      const data = req.body;
+      console.log(data);
+      const result = await doctorsCollection.insertOne(data);
+      res.send(result);
+    });
+    //get doctor
+    app.get("/doctors", async (req, res) => {
+      const email = req.query.email;
+      const query = {};
+      const result = await doctorsCollection.find(query).toArray();
       res.send(result);
     });
   } finally {
