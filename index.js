@@ -187,17 +187,30 @@ async function run() {
     });
 
     //add doctor
-    app.post("/doctors", async (req, res) => {
+    app.post("/doctors", verifyJWT, async (req, res) => {
+      const decodedEmail = req.decoded.email;
+      const query = { email: decodedEmail };
+      const user = await usersCollection.findOne(query);
+      if (user?.role !== "admin") {
+        return res.status(403).send({ message: "forbidden access" });
+      }
       const data = req.body;
       console.log(data);
       const result = await doctorsCollection.insertOne(data);
       res.send(result);
     });
     //get doctor
-    app.get("/doctors", async (req, res) => {
-      const email = req.query.email;
-      const query = {};
-      const result = await doctorsCollection.find(query).toArray();
+    app.get("/doctors", verifyJWT, async (req, res) => {
+      let query = {};
+      const decodedEmail = req.decoded.email;
+      query = { email: decodedEmail };
+      const user = await usersCollection.findOne(query);
+      if (user?.role !== "admin") {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+      const doctorsQuery = {};
+
+      const result = await doctorsCollection.find(doctorsQuery).toArray();
       res.send(result);
     });
   } finally {
