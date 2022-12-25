@@ -47,18 +47,37 @@ async function run() {
     const usersCollection = client.db("doctors-portal").collection("users");
     const doctorsCollection = client.db("doctors-portal").collection("doctors");
 
+    //verify Admin middleware
+
+    const verifyAdmin = async (req, res, next) => {
+      const decodedEmail = req.decoded.email;
+      const query = { email: decodedEmail };
+      const user = await usersCollection.findOne(query);
+
+      if (user?.role !== "admin") {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+      next();
+    };
+
     //generate token
-    app.get("/jwt", async (req, res) => {
+    app.get("/jwt", async (req, res, next) => {
       const email = req.query.email;
       const query = { email: email };
       const user = await usersCollection.findOne(query);
-      if (user) {
-        const token = jwt.sign({ email }, process.env.ACCESS_TOKEN, {
-          expiresIn: "1d",
-        });
-        res.send({ accessToken: token });
+      try {
+        if (user) {
+          const token = jwt.sign({ email }, process.env.ACCESS_TOKEN, {
+            expiresIn: "1d",
+          });
+          res.send({ accessToken: token });
+        }
+        res.status(403).send({ accessToken: "No Access Token" });
+        next();
+        res.redirect();
+      } catch (error) {
+        console.log("Error", error);
       }
-      res.status(403).send({ accessToken: "No Access Token" });
     });
 
     app.get("/appointmentOptions", async (req, res) => {
@@ -109,9 +128,8 @@ async function run() {
      ***/
     app.get("/bookings", verifyJWT, async (req, res) => {
       const email = req.query.email;
-      console.log(email);
       const decodedEmail = req.decoded.email;
-
+      console.log("Decoded Email", decodedEmail);
       if (email !== decodedEmail) {
         return res.status(403).send({ message: "forbidden access" });
       }
@@ -123,7 +141,6 @@ async function run() {
 
     app.post("/bookings", async (req, res) => {
       const booking = req.body;
-      console.log(booking);
 
       const query = {
         appointmentDate: booking.appointmentDate,
@@ -162,13 +179,7 @@ async function run() {
       const user = await usersCollection.findOne(query);
       res.send({ isAdmin: user?.role === "admin" });
     });
-    app.put("/users/admin/:id", verifyJWT, async (req, res) => {
-      const decodedEmail = req.decoded.email;
-      const query = { email: decodedEmail };
-      const user = await usersCollection.findOne(query);
-      if (user?.role !== "admin") {
-        return res.status(403).send({ message: "forbidden access" });
-      }
+    app.put("/users/admin/:id", verifyJWT, verifyAdmin, async (req, res) => {
       const id = req.params.id;
 
       const filter = { _id: ObjectId(id) };
@@ -187,16 +198,24 @@ async function run() {
     });
 
     //add doctor
-    app.post("/doctors", async (req, res) => {
+    app.post("/doctors", verifyJWT, verifyAdmin, async (req, res) => {
       const data = req.body;
       console.log(data);
       const result = await doctorsCollection.insertOne(data);
       res.send(result);
     });
     //get doctor
-    app.get("/doctors", async (req, res) => {
+    app.get("/doctors", verifyJWT, verifyAdmin, async (req, res) => {
       const query = {};
       const result = await doctorsCollection.find(query).toArray();
+      res.send(result);
+    });
+
+    //delete doctor
+    app.delete("/doctors/:id", verifyJWT, verifyAdmin, async (req, res) => {
+      const id = req.params.id;
+      const filter = { _id: ObjectId(id) };
+      const result = await doctorsCollection.deleteOne(filter);
       res.send(result);
     });
   } finally {
