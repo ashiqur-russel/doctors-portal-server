@@ -9,6 +9,10 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+app.get("/", async (req, res) => {
+  res.send("Doctors-chamber API running!");
+});
+
 function verifyJWT(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader) {
@@ -138,6 +142,13 @@ async function run() {
       const bookings = await bookingCollection.find(query).toArray();
       res.send(bookings);
     });
+    //get booking by id
+    app.get("/bookings/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: ObjectId(id) };
+      const booking = await bookingCollection.findOne(query);
+      res.send(booking);
+    });
 
     app.post("/bookings", async (req, res) => {
       const booking = req.body;
@@ -196,6 +207,25 @@ async function run() {
       );
       res.send(result);
     });
+
+    // update or add price for treatment (temporary)
+    /*  app.get("/addPrice", async (req, res) => {
+      const filter = {};
+      const options = { upsert: true };
+      const updatedDoc = {
+        $set: {
+          price: 99,
+        },
+      };
+
+      const result = await appointmentOptionsCollection.updateMany(
+        filter,
+        updatedDoc,
+        options
+      );
+
+      res.send(result);
+    }); */
 
     //add doctor
     app.post("/doctors", verifyJWT, verifyAdmin, async (req, res) => {
