@@ -8,7 +8,7 @@ const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const port = process.removeListener.PORT || 5000;
 const app = express();
 //middleare
-app.use(cors({ origin: ['*','http://localhost:5173'], credentials: true }));
+app.use(cors({ origin: ['http://localhost:3000','https://doctors-portal-ashiqur-russel.vercel.app']}));
 
 app.use(express.json());
 
