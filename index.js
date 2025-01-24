@@ -135,6 +135,15 @@ async function run() {
       }
     });
 
+    app.get("/appointmentSpeciality", async (req, res) => {
+      const query = {};
+      const result = await appointmentOptionsCollection
+        .find(query)
+        .project({ name: 1 })
+        .toArray();
+      res.send(result);
+    });
+
     app.post("/bookings",verifyJWT, async (req, res) => {
       try {
         const booking = req.body;
@@ -233,6 +242,7 @@ app.get("/bookings", verifyJWT, async (req, res) => {
 
     // Doctor routes
     app.post("/doctors", verifyJWT, verifyAdmin, async (req, res) => {
+      console.log("Doctor data:", req.body);
       try {
         const data = req.body;
         const result = await doctorsCollection.insertOne(data);
@@ -243,6 +253,7 @@ app.get("/bookings", verifyJWT, async (req, res) => {
     });
 
     app.get("/doctors", verifyJWT, verifyAdmin, async (req, res) => {
+      console.log("Fetching doctors");
       try {
         const result = await doctorsCollection.find({}).toArray();
         res.send(result);
