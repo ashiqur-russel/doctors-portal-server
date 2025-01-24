@@ -255,8 +255,19 @@ app.get("/bookings", verifyJWT, async (req, res) => {
     app.put("/users/admin/:id", verifyJWT, verifyAdmin, async (req, res) => {
       try {
         const id = req.params.id;
-        const updatedDoc = { $set: { role: "admin" } };
-        const result = await usersCollection.updateOne({ _id: ObjectId(id) }, updatedDoc);
+
+        const filter = { _id: ObjectId(id) };
+        const options = { upsert: true };
+        const updatedDoc = {
+          $set: {
+            role: "admin",
+          },
+        };
+        const result = await usersCollection.updateOne(
+          filter,
+          updatedDoc,
+          options
+        );
         res.send(result);
       } catch (error) {
         res.status(500).send({ message: "Error promoting user to admin", error: error.message });
