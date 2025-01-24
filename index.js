@@ -9,7 +9,7 @@ const port = process.env.PORT || 5001;
 const app = express();
 
 // Middleware
-app.use(cors({ origin: ['http://localhost:3000', 'https://doctors-portal-ashiqur-russel.vercel.app'] }));
+app.use(cors({ origin: ['http://localhost:3000', 'https://arzt-praxis.web.app'] }, { credentials: true }));
 app.use(express.json());
 
 app.get("/", async (req, res) => {
