@@ -5,17 +5,18 @@ const jwt = require("jsonwebtoken");
 require("dotenv").config();
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 
-const port = process.removeListener.PORT || 5000;
+const port = process.env.PORT || 5001;
 const app = express();
-//middleare
-app.use(cors({ origin: ['http://localhost:3000','https://doctors-portal-ashiqur-russel.vercel.app']}));
 
+// Middleware
+app.use(cors({ origin: ['http://localhost:3000', 'https://doctors-portal-ashiqur-russel.vercel.app'] }));
 app.use(express.json());
 
 app.get("/", async (req, res) => {
   res.send("Doctors-chamber API running!");
 });
 
+// JWT verification middleware
 function verifyJWT(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader) {
@@ -23,19 +24,20 @@ function verifyJWT(req, res, next) {
   }
 
   const token = authHeader.split(" ")[1];
-  console.log("inside verify jwt", token);
 
-  jwt.verify(token, process.env.ACCESS_TOKEN, function (err, decoded) {
+  jwt.verify(token, process.env.ACCESS_TOKEN, (err, decoded) => {
     if (err) {
-      return res.status(403).send({ message: "forbidden access" });
+      console.log("JWT Verification Error:", err.message);
+      return res.status(403).send({ message: "Forbidden access" });
     }
     req.decoded = decoded;
     next();
   });
 }
 
-const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASSWORD}@cluster0.irpitar.mongodb.net/?retryWrites=true&w=majority`;
 
+// MongoDB connection
+const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASSWORD}@cluster0.irpitar.mongodb.net/?retryWrites=true&w=majority`;
 const client = new MongoClient(uri, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
@@ -44,252 +46,226 @@ const client = new MongoClient(uri, {
 
 async function run() {
   try {
-    const appointmentOptionsCollection = client
-      .db("doctors-portal")
-      .collection("appointmentOptions");
-
-    const bookingCollection = client
-      .db("doctors-portal")
-      .collection("bookings");
+    const appointmentOptionsCollection = client.db("doctors-portal").collection("appointmentOptions");
+    const bookingCollection = client.db("doctors-portal").collection("bookings");
     const usersCollection = client.db("doctors-portal").collection("users");
     const doctorsCollection = client.db("doctors-portal").collection("doctors");
-    const paymentsCollection = client
-      .db("doctors-portal")
-      .collection("payments");
-    //verify Admin middleware
+    const paymentsCollection = client.db("doctors-portal").collection("payments");
 
     const verifyAdmin = async (req, res, next) => {
-      const decodedEmail = req.decoded.email;
-      const query = { email: decodedEmail };
-      const user = await usersCollection.findOne(query);
-
-      if (user?.role !== "admin") {
-        return res.status(403).send({ message: "forbidden access" });
-      }
-      next();
-    };
-    //STRIPE Pament API route
-    app.post("/create-payment-intent", async (req, res) => {
-      const booking = req.body;
-      const price = booking.price;
-      const amount = price * 100;
-
-      const paymentIntent = await stripe.paymentIntents.create({
-        currency: "eur",
-        amount: amount,
-        payment_method_types: ["card"],
-      });
-      res.send({
-        clientSecret: paymentIntent.client_secret,
-      });
-    });
-
-    app.post("/payments", async (req, res) => {
-      const payment = req.body;
-      const result = await paymentsCollection.insertOne(payment);
-      const id = payment.bookingId;
-      const filter = { _id: ObjectId(id) };
-      const updatedDoc = {
-        $set: {
-          paid: true,
-          transactionId: payment.transactionId,
-        },
-      };
-      const updatedResult = await bookingCollection.updateOne(
-        filter,
-        updatedDoc
-      );
-      res.send(result);
-    });
-
-    //generate token
-    app.get("/jwt", async (req, res, next) => {
-      const email = req.query.email;
-      const query = { email: email };
-      const user = await usersCollection.findOne(query);
       try {
-        if (user) {
-          const token = jwt.sign({ email }, process.env.ACCESS_TOKEN, {
-            expiresIn: "1d",
-          });
-          res.send({ accessToken: token });
+        const decodedEmail = req.decoded.email;
+        const user = await usersCollection.findOne({ email: decodedEmail });
+        if (user?.role !== "admin") {
+          return res.status(403).send({ message: "Forbidden access" });
         }
-        res.status(403).send({ accessToken: "No Access Token" });
         next();
-        res.redirect();
       } catch (error) {
-        console.log("Error", error);
+        res.status(500).send({ message: "Error verifying admin", error: error.message });
+      }
+    };
+
+    // Stripe Payment Intent route
+    app.post("/create-payment-intent", async (req, res) => {
+      try {
+        const { price } = req.body;
+        const amount = price * 100;  // Price in cents (Stripe uses cents)
+
+        const paymentIntent = await stripe.paymentIntents.create({
+          currency: "eur",
+          amount: amount,
+          payment_method_types: ["card"],
+        });
+
+        res.send({ clientSecret: paymentIntent.client_secret });
+      } catch (error) {
+        res.status(500).send({ message: "Error creating payment intent", error: error.message });
       }
     });
+
+    // Handle payment
+    app.post("/payments", async (req, res) => {
+      try {
+        const payment = req.body;
+        const result = await paymentsCollection.insertOne(payment);
+        const { bookingId, transactionId } = payment;
+        const updatedDoc = {
+          $set: { paid: true, transactionId },
+        };
+
+        const updatedResult = await bookingCollection.updateOne(
+          { _id: ObjectId(bookingId) },
+          updatedDoc
+        );
+
+        res.send(result);
+      } catch (error) {
+        res.status(500).send({ message: "Error processing payment", error: error.message });
+      }
+    });
+
+    // Generate JWT token
+    app.get("/jwt", async (req, res) => {
+      const email = req.query.email;
+      const user = await usersCollection.findOne({ email });
+      if (user) {
+        const token = jwt.sign({ email }, process.env.ACCESS_TOKEN, { expiresIn: "1d" });
+        return res.send({ accessToken: token });
+      }
+      res.status(403).send({ accessToken: "No Access Token" });
+    });
+    
 
     app.get("/appointmentOptions", async (req, res) => {
-      const date = req.query.date;
-      console.log(date);
-      const query = {};
-      const options = await appointmentOptionsCollection.find(query).toArray();
-      const bookingQuery = {
-        appointmentDate: date,
-      };
+      try {
+        const { date } = req.query;
+        const options = await appointmentOptionsCollection.find({}).toArray();
+        const alreadyBooked = await bookingCollection.find({ appointmentDate: date }).toArray();
 
-      const alreadyBooked = await bookingCollection
-        .find(bookingQuery)
-        .toArray();
+        options.forEach(option => {
+          const bookedSlots = alreadyBooked
+            .filter(book => book.treatment === option.name)
+            .map(book => book.slot);
+          option.slots = option.slots.filter(slot => !bookedSlots.includes(slot));
+        });
 
-      options.forEach((option) => {
-        const optionBooked = alreadyBooked.filter(
-          (book) => book.treatment === option.name
-        );
-        const bookedSlot = optionBooked.map((book) => book.slot);
-        const remainingSlots = option.slots.filter(
-          (slot) => !bookedSlot.includes(slot)
-        );
-
-        option.slots = remainingSlots;
-      });
-
-      res.send(options);
-    });
-
-    //get Speciality
-
-    app.get("/appointmentSpeciality", async (req, res) => {
-      const query = {};
-      const result = await appointmentOptionsCollection
-        .find(query)
-        .project({ name: 1 })
-        .toArray();
-      res.send(result);
-    });
-
-    /***
-     * bookings API naming convention
-     * app.get('/bookings)
-     * app.get('/bookings/:id)
-     * app.post('/bookings)
-     * app.patch('/bookings/:id)
-     ***/
-    app.get("/bookings", verifyJWT, async (req, res) => {
-      const email = req.query.email;
-      const decodedEmail = req.decoded.email;
-      console.log("Decoded Email", decodedEmail);
-      if (email !== decodedEmail) {
-        return res.status(403).send({ message: "forbidden access" });
+        res.send(options);
+      } catch (error) {
+        res.status(500).send({ message: "Error fetching appointment options", error: error.message });
       }
-
-      const query = { email: email };
-      const bookings = await bookingCollection.find(query).toArray();
-      res.send(bookings);
-    });
-    //get booking by id
-    app.get("/bookings/:id", async (req, res) => {
-      const id = req.params.id;
-      const query = { _id: ObjectId(id) };
-      const booking = await bookingCollection.findOne(query);
-      res.send(booking);
     });
 
-    app.post("/bookings", async (req, res) => {
-      const booking = req.body;
+    app.post("/bookings",verifyJWT, async (req, res) => {
+      try {
+        const booking = req.body;
+        const query = {
+          appointmentDate: booking.appointmentDate,
+          email: booking.email,
+          treatment: booking.treatment,
+        };
 
-      const query = {
-        appointmentDate: booking.appointmentDate,
-        email: booking.email,
+        const alreadyBooked = await bookingCollection.find(query).toArray();
+        if (alreadyBooked.length) {
+          return res.status(400).send({ message: `You already have a booking on ${booking.appointmentDate}` });
+        }
 
-        treatment: booking.treatment,
-      };
-      const alreadyBooked = await bookingCollection.find(query).toArray();
-      if (alreadyBooked.length) {
-        const message = `You already have a booking on ${booking.appointmentDate} `;
-        return res.send({ acknowledged: false, message });
+        const result = await bookingCollection.insertOne(booking);
+        res.send(result);
+      } catch (error) {
+        res.status(500).send({ message: "Error booking appointment", error: error.message });
       }
-      const result = await bookingCollection.insertOne(booking);
-      res.send(result);
     });
 
-    /* Users API */
+    app.get("/bookings/:id", verifyJWT, async (req, res) => {
+      try {
+        const decodedEmail = req.decoded.email; 
+        const bookingId = req.params.id;
+    
+        const booking = await bookingCollection.findOne({ _id: ObjectId(bookingId) });
+    
+        if (!booking) {
+          return res.status(404).send({ message: "Booking not found" });
+        }
+    
+        if (booking.email !== decodedEmail) {
+          return res.status(403).send({ message: "You are not authorized to view this booking" });
+        }
+    
+        res.send(booking);
+      } catch (error) {
+        console.error("Error fetching booking:", error);
+        res.status(500).send({ message: "Error fetching booking", error: error.message });
+      }
+    });
+    
+    
+app.get("/bookings", verifyJWT, async (req, res) => {
+  try {
+    const email = req.query.email; 
+    const decodedEmail = req.decoded.email; 
 
+    if (email !== decodedEmail) {
+      return res.status(403).send({ message: "Forbidden access" });
+    }
+
+    const query = { email: email };
+    const bookings = await bookingCollection.find(query).toArray();
+
+    res.send(bookings);
+  } catch (error) {
+    console.error("Error fetching bookings:", error);
+    res.status(500).send({ message: "Error fetching bookings", error: error.message });
+  }
+});
+
+    // Users routes
     app.post("/users", async (req, res) => {
-      const user = req.body;
-      console.log(user);
-      const result = await usersCollection.insertOne(user);
-      res.send(result);
+      try {
+        const user = req.body;
+        const result = await usersCollection.insertOne(user);
+        res.send(result);
+      } catch (error) {
+        res.status(500).send({ message: "Error creating user", error: error.message });
+      }
     });
 
-    //get all users
-    app.get("/users", async (req, res) => {
-      const query = {};
-      const users = await usersCollection.find(query).toArray();
-      res.send(users);
-    });
-
+    // Admin routes
     app.get("/users/admin/:email", async (req, res) => {
-      const email = req.params.email;
-      const query = { email };
-      const user = await usersCollection.findOne(query);
-      res.send({ isAdmin: user?.role === "admin" });
+      try {
+        const email = req.params.email;
+        const user = await usersCollection.findOne({ email });
+        res.send({ isAdmin: user?.role === "admin" });
+      } catch (error) {
+        res.status(500).send({ message: "Error checking admin", error: error.message });
+      }
     });
+
     app.put("/users/admin/:id", verifyJWT, verifyAdmin, async (req, res) => {
-      const id = req.params.id;
-
-      const filter = { _id: ObjectId(id) };
-      const options = { upsert: true };
-      const updatedDoc = {
-        $set: {
-          role: "admin",
-        },
-      };
-      const result = await usersCollection.updateOne(
-        filter,
-        updatedDoc,
-        options
-      );
-      res.send(result);
+      try {
+        const id = req.params.id;
+        const updatedDoc = { $set: { role: "admin" } };
+        const result = await usersCollection.updateOne({ _id: ObjectId(id) }, updatedDoc);
+        res.send(result);
+      } catch (error) {
+        res.status(500).send({ message: "Error promoting user to admin", error: error.message });
+      }
     });
 
-    // update or add price for treatment (temporary)
-    /*  app.get("/addPrice", async (req, res) => {
-      const filter = {};
-      const options = { upsert: true };
-      const updatedDoc = {
-        $set: {
-          price: 99,
-        },
-      };
-
-      const result = await appointmentOptionsCollection.updateMany(
-        filter,
-        updatedDoc,
-        options
-      );
-
-      res.send(result);
-    }); */
-
-    //add doctor
+    // Doctor routes
     app.post("/doctors", verifyJWT, verifyAdmin, async (req, res) => {
-      const data = req.body;
-      console.log(data);
-      const result = await doctorsCollection.insertOne(data);
-      res.send(result);
-    });
-    //get doctor
-    app.get("/doctors", verifyJWT, verifyAdmin, async (req, res) => {
-      const query = {};
-      const result = await doctorsCollection.find(query).toArray();
-      res.send(result);
+      try {
+        const data = req.body;
+        const result = await doctorsCollection.insertOne(data);
+        res.send(result);
+      } catch (error) {
+        res.status(500).send({ message: "Error adding doctor", error: error.message });
+      }
     });
 
-    //delete doctor
-    app.delete("/doctors/:id", verifyJWT, verifyAdmin, async (req, res) => {
-      const id = req.params.id;
-      const filter = { _id: ObjectId(id) };
-      const result = await doctorsCollection.deleteOne(filter);
-      res.send(result);
+    app.get("/doctors", verifyJWT, verifyAdmin, async (req, res) => {
+      try {
+        const result = await doctorsCollection.find({}).toArray();
+        res.send(result);
+      } catch (error) {
+        res.status(500).send({ message: "Error fetching doctors", error: error.message });
+      }
     });
+
+    app.delete("/doctors/:id", verifyJWT, verifyAdmin, async (req, res) => {
+      try {
+        const id = req.params.id;
+        const result = await doctorsCollection.deleteOne({ _id: ObjectId(id) });
+        res.send(result);
+      } catch (error) {
+        res.status(500).send({ message: "Error deleting doctor", error: error.message });
+      }
+    });
+
   } finally {
+    // Close the MongoDB client connection
   }
 }
 
-run().catch(console.log());
+run().catch(console.log);
 
-app.listen(port, () => console.log(`Dpctprs Portal running on ${port}`));
+app.listen(port, () => console.log(`Doctors Chamber App is running on ${port}`));
