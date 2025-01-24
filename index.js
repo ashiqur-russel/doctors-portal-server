@@ -218,6 +218,18 @@ app.get("/bookings", verifyJWT, async (req, res) => {
       }
     });
 
+    app.get("/users", async (req, res) => {
+     try {
+      const query = {};
+      const users = await usersCollection.find(query).toArray();
+      res.send(users);
+      
+     } catch (error) {
+      res.status(500).send({ message: "Error Fetching users", error: error.message });
+     }
+    });
+
+
     // Admin routes
     app.get("/users/admin/:email", async (req, res) => {
       try {
@@ -226,6 +238,17 @@ app.get("/bookings", verifyJWT, async (req, res) => {
         res.send({ isAdmin: user?.role === "admin" });
       } catch (error) {
         res.status(500).send({ message: "Error checking admin", error: error.message });
+      }
+    });
+
+    app.put("/users/admin/:email", verifyJWT, verifyAdmin, async (req, res) => {
+      try {
+        const email = req.params.email;
+        const query = { email };
+        const user = await usersCollection.findOne(query);
+        res.send({ isAdmin: user?.role === "admin" });
+      } catch (error) {
+        res.status(500).send({ message: "Error promoting user to admin", error: error.message });
       }
     });
 
